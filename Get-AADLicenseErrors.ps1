@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Get Azure AD Licensing errors
+    Get Azure AD Licensing errors and send email report
 
 .DESCRIPTION
     This scripts emails a list of all the users that currently have Azure AD Licensing errors due to AAD group licensing.
