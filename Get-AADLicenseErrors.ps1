@@ -7,6 +7,9 @@
     This scripts prompts for credentials, these will be used to gather information about Azure AD Groups and will be used to send an email.
     This means this user should have permissions to request group information and permissions to send email through the address specified in the ReportSender Variable
 
+    This script requires the MSOnline PowerShell Module
+    https://www.powershellgallery.com/packages/MSOnline/1.1.183.17
+
     This scripts creates a log file each time the script is executed. 
     It deleted all the logs it created that are older than 30 days. This value is defined in the MaxAgeLogFiles variable.
 
@@ -104,6 +107,7 @@ Function Write-Log {
 }
 
 Function Connect-MSOL(){
+    Write-Log "[INFO] - Starting Function Connect-MSO"
     Try{
         $Cred = (Get-Credential)
 
@@ -117,7 +121,7 @@ Function Connect-MSOL(){
         Write-Log "$($_.Exception.Message)"
         Exit
     }
-    
+    Write-Log "[INFO] - Exiting Function Connect-MSO"
 }
 
 Function Populate-ErrorMesages {
