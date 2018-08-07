@@ -56,7 +56,7 @@ param (
     [String]$SMTPserver = "smtp.office365.com",
     [double]$SMTPPort = 587,
     [string]$SMTPSSL = "True",
-    [string]$LogPath = "C:\Windows\Temp\CustomScripts\Compare_Licenses.txt"
+    [string]$LogPath = "C:\Windows\Temp\CustomScripts\Get-AADLicenseErrors.txt"
 )
 #endregion
 
