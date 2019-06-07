@@ -37,6 +37,7 @@
     ..\Send-AzureADLicenseErrors.ps1 -ReportSender test@contoso.com -ReportRecipient test@contoso.com -SMTPserver SMTPRelay.contoso.com `
 -StoredCredsPath C:\Temp\Creds.xml    
 .NOTES
+    Forked from: https://github.com/LeThijs/Azure-AD - https://www.orbid365.be/reporting-azure-ad-group-licensing/ 	
     File Name  : Send-AzureADLicenseErrors.ps1  
 #>
 
