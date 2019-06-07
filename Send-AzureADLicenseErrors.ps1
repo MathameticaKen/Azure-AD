@@ -1,52 +1,43 @@
 ﻿<#
 .SYNOPSIS
     Get Azure AD Licensing errors and send email report
-
 .DESCRIPTION
     This scripts emails a list of all the users that currently have Azure AD Licensing errors due to AAD group licensing.
     This scripts prompts for credentials, these will be used to gather information about Azure AD Groups and will be used to send an email.
     This means this user should have permissions to request group information and permissions to send email through the address specified in the ReportSender Variable
-
     This script requires the MSOnline PowerShell Module
     https://www.powershellgallery.com/packages/MSOnline/1.1.183.17
-
     This scripts creates a log file each time the script is executed. 
     It deleted all the logs it created that are older than 30 days. This value is defined in the MaxAgeLogFiles variable.
-
 .PARAMETER LogPath
     This defines the path of the logfile. By default: "C:\Windows\Temp\CustomScript\Get-AADLicenseErrors..txt"
     You can overwrite this path by calling this script with parameter -logPath (see examples)
-
 .PARAMETER ReportSender
     Emailaddress through which the report will be sent.
-
 .PARAMETER ReportRecipient
     Emailaddress of the recipient for the report
-
 .PARAMETER SMTPserver
     SMTP servers that will be used to send the email
     Default: smtp.office365.com
-
-.PARAMETER SMTPPort
-    Port used on the SMTPserver to send email
-    Default: 587
-
-.PARAMETER SMTPSLL
+.PARAMETER SetSMTPSSL
     Set require SSL for SMTP yes or no
-    Default: True
-
+    Default: False
+.PARAMETER StoredCredsPath
+    Store Credentials by Get-Credential | Export-CliXml -Path "${env:\userprofile}\creds.xml" 
+    Pass the path of credentials using this Parameter
+    Default: False    
 .EXAMPLE
     Use script to authenticate with O365
-    ..\Get-AADLicenseErrors..ps1 -ReportSender 'example@contoso.com' -ReportRecipient 'Example2@contoso.com' -SMTPServer "smtp.office365.com" -SMTPPort 587 -SMTPSSL True
-
+    ..\Send-AzureADLicenseErrors..ps1 -ReportSender 'example@contoso.com' -ReportRecipient 'Example2@contoso.com' -SMTPServer "smtp.office365.com" -SMTPPort 587 -SMTPSSL True
 .EXAMPLE
     Change the default logpath with the use of the parameter logPath
-    ..\Get-AADLicenseErrors..ps1 -logPath "C:\Windows\Temp\CustomScripts\Get-AADLicenseErrors.txt"
-
+    ..\Send-AzureADLicenseErrors..ps1 -logPath "C:\Windows\Temp\CustomScripts\Send-AzureADLicenseErrors.txt"
+.EXAMPLE
+    Use this script as a scheduled task with an Unauthenticated SMTP relay server
+    ..\Send-AzureADLicenseErrors.ps1 -ReportSender test@contoso.com -ReportRecipient test@contoso.com -SMTPserver SMTPRelay.contoso.com `
+-StoredCredsPath C:\Temp\Creds.xml    
 .NOTES
-    File Name  : Get-AADLicenseErrors.ps1  
-    Author     : Thijs Lecomte 
-    Company    : Orbid NV
+    File Name  : Send-AzureADLicenseErrors.ps1  
 #>
 
 #region Parameters
@@ -56,16 +47,37 @@ param (
     [String]$ReportSender,
     [Parameter(Mandatory=$True,Position=1)]
     [String]$ReportRecipient,
+    [Parameter(Mandatory=$True)]
     [String]$SMTPserver = "smtp.office365.com",
-    [double]$SMTPPort = 587,
-    [string]$SMTPSSL = "True",
-    [string]$LogPath = "C:\Windows\Temp\CustomScripts\Get-AADLicenseErrors.txt"
+    [Parameter(Mandatory=$False)]
+    [switch]$SetSMTPSSL = $False,
+    [Parameter(Mandatory=$false)]
+    [string]$LogPath = "C:\Windows\Temp\CustomScripts\Send-AzureADLicenseErrors.txt",
+    [Parameter(Mandatory=$false)]
+    [string]$StoredCredsPath = $null,
+    [Parameter(Mandatory=$false)]
+	[ValidateSet('$True')]
+    [string]$AlwaysSendEmail = $null
+    
 )
 #endregion
+
+#Set explicit TLS 1.2 for Hardened Environments
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 #region variables
 $MaxAgeLogFiles = 30
 
+    #SSL switch Variables
+    if ($SSL) {
+        [double]$SMTPPort = 587
+        [string]$SMTPSSL = "True"
+    }
+    else {
+        [double]$SMTPPort = 25    
+    }
+#endregion
+    
 #region Log file creation
 #Create Log file
   Try{
@@ -109,7 +121,13 @@ Function Write-Log {
 Function Connect-MSOL(){
     Write-Log "[INFO] - Starting Function Connect-MSO"
     Try{
-        $Cred = (Get-Credential)
+        if($StoredCredsPath) {
+            Write-Log "[INFO] - Using Stored Creds"
+            $cred = Get-Credential -Credential (Import-Clixml -Path $StoredCredsPath)
+        } 
+        else {
+            $Cred = (Get-Credential)
+        }
 
         $null = Connect-MsolService -Credential $cred
         Write-Log "[INFO] - Connected to MSOL service"
@@ -124,8 +142,8 @@ Function Connect-MSOL(){
     Write-Log "[INFO] - Exiting Function Connect-MSO"
 }
 
-Function Populate-ErrorMesages {
-    Write-Log "[INFO] - Starting Function Populate-ErrorMesages"
+Function Set-DefinedErrorMessages {
+    Write-Log "[INFO] - Starting Function Set-DefinedErrorMessages"
 
     $errormessages = @()
     $errormessages += @{Name="CountViolation";Description="There aren't enough available licenses for one of the products that's specified in the group. You need to either purchase more licenses for the product or free up unused licenses from other users or groups."} 
@@ -133,7 +151,7 @@ Function Populate-ErrorMesages {
     $errormessages += @{Name="DependencyViolation";Description="One of the products that's specified in the group contains a service plan that must be enabled for another service plan, in another product, to function. This error occurs when Azure AD attempts to remove the underlying service plan. For example, this can happen when you remove the user from the group."}
     $errormessages += @{Name="ProhibitedInUsageLocationViolation";Description="Some Microsoft services aren't available in all locations because of local laws and regulations."}
     Write-Log "[INFO] - Added $($errormessages.count) errormessages"
-    Write-Log "[INFO] - Ending Function Populate-ErrorMesages"
+    Write-Log "[INFO] - Ending Function Set-DefinedErrorMessages"
 
     return $errormessages
 }
@@ -232,10 +250,12 @@ Function Send-Mail($errors, $Credential, $errormessages){
     Try{
         #Check if SSL should be used
         if($SMTPSSL){
+            Write-Log "[INFO] - Sending message with SSL"
             Send-MailMessage -To $ReportRecipient -From $ReportSender -Subject ("Azure AD Group Licensing Errors " +  (Get-Date -format d)) -Credential $Credential -Body $body -BodyAsHtml -smtpserver $SMTPServer -usessl -Port $SMTPPort 
         }
         else{
-            Send-MailMessage -To $ReportRecipient -From $ReportSender -Subject ("Azure AD Group Licensing Errors " +  (Get-Date -format d)) -Credential $Credential -Body $body -BodyAsHtml -smtpserver $SMTPServer -Port $SMTPPort  
+            Write-Log "[INFO] - Sending message without SSL"
+            Send-MailMessage -To $ReportRecipient -From $ReportSender -Subject ("Azure AD Group Licensing Errors " +  (Get-Date -format d)) -Body $body -BodyAsHtml -smtpserver $SMTPServer -Port $SMTPPort  
         }
         
     }
@@ -267,8 +287,17 @@ Finally{
     Get-PSSession | Remove-PSSession
 }
 
-$errormessages  = Populate-ErrorMesages
+$errormessages  = Set-DefinedErrorMessages
 
-Send-Mail -errors $errors -Credential $Credential -errormessages $errormessages
+if ($AlwaysSendEmail) {
+    Send-Mail -errors $errors -Credential $Credential -errormessages $errormessages
+}
+elseif ($errors.count) {
+    Send-Mail -errors $errors -Credential $Credential -errormessages $errormessages
+}
+else {
+    Write-Log "[INFO] - AlwaysSendEmail not set and no license errors found"
+}
+
 Write-Log "[INFO] - Stopping script"
 #endregion
